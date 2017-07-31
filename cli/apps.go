@@ -39,6 +39,10 @@ func apps() cli.Command {
 						Name:  "config",
 						Usage: "application configuration",
 					},
+					cli.StringSliceFlag{
+						Name:  "image",
+						Usage: "image to use, if full app container",
+					},
 				},
 			},
 			{

@@ -535,8 +535,11 @@ definitions:
     properties:
       name:
         type: string
-        description: "Name of this app. Must be different than the image name. Can ony contain alphanumeric, -, and _."
+        description: "Name of this app. Can ony contain alphanumeric, -, and _."
         readOnly: true
+      image:
+        type: string
+        description: "Image to use, if container contains full application."
       config:
         type: object
         description: Application configuration

@@ -12,15 +12,15 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/gin-gonic/gin"
-	"github.com/go-openapi/strfmt"
-	cache "github.com/patrickmn/go-cache"
 	"github.com/fnproject/fn/api"
 	"github.com/fnproject/fn/api/id"
 	"github.com/fnproject/fn/api/models"
 	"github.com/fnproject/fn/api/runner"
 	"github.com/fnproject/fn/api/runner/common"
 	"github.com/fnproject/fn/api/runner/task"
+	"github.com/gin-gonic/gin"
+	"github.com/go-openapi/strfmt"
+	cache "github.com/patrickmn/go-cache"
 )
 
 type runnerResponse struct {
@@ -60,7 +60,7 @@ func (s *Server) handleRequest(c *gin.Context, enqueue models.Enqueue) {
 	} else if c.Request.Method == "GET" {
 		reqPayload := c.Request.URL.Query().Get("payload")
 		payload = strings.NewReader(reqPayload)
-	}
+	} // TODO: what about the other verbs??
 
 	r, routeExists := c.Get(api.Path)
 	if !routeExists {
@@ -86,22 +86,37 @@ func (s *Server) handleRequest(c *gin.Context, enqueue models.Enqueue) {
 		return
 	}
 
-	log.WithFields(logrus.Fields{"app": appName, "path": path}).Debug("Finding route on datastore")
-	route, err := s.loadroute(ctx, appName, path)
-	if err != nil {
-		handleErrorResponse(c, err)
-		return
-	}
+	var route *models.Route
+	// check if full app container
+	if app.Image != nil && &app.Image != "" {
+		route = &models.Route{
+			AppName: app.Name,
+			Path:    "/",
+			Image:   app.Image,
+			// TODO: Memory: how do they set this?
+			Type:        "app",
+			Timeout:     5 * time.Minute,
+			IdleTimeout: 60 * time.Second,
+		}
+	} else {
+		log.WithFields(logrus.Fields{"app": appName, "path": path}).Debug("Finding route on datastore")
+		route, err := s.loadroute(ctx, appName, path)
+		if err != nil {
+			handleErrorResponse(c, err)
+			return
+		}
 
-	if route == nil {
-		handleErrorResponse(c, models.ErrRoutesNotFound)
-		return
+		if route == nil {
+			handleErrorResponse(c, models.ErrRoutesNotFound)
+			return
+		}
 	}
 
 	log = log.WithFields(logrus.Fields{"app": appName, "path": route.Path, "image": route.Image})
 	log.Debug("Got route from datastore")
 
-	if s.serve(ctx, c, appName, route, app, path, reqID, payload, enqueue) {
+	// Run the function!
+	if s.serve(ctx, c, appName, app, route, reqID, payload, enqueue) {
 		s.FireAfterDispatch(ctx, reqRoute)
 		return
 	}
@@ -128,14 +143,14 @@ func (s *Server) loadroute(ctx context.Context, appName, path string) (*models.R
 	return route, nil
 }
 
-// TODO: Should remove *gin.Context from these functions, should use only context.Context
-func (s *Server) serve(ctx context.Context, c *gin.Context, appName string, route *models.Route, app *models.App, path, reqID string, payload io.Reader, enqueue models.Enqueue) (ok bool) {
-	ctx, log := common.LoggerWithFields(ctx, logrus.Fields{"app": appName, "route": route.Path, "image": route.Image})
+func (s *Server) serve(ctx context.Context, c *gin.Context, app *models.App, route *models.Route, reqID string, payload io.Reader, enqueue models.Enqueue) (ok bool) {
+	ctx, log := common.LoggerWithFields(ctx, logrus.Fields{"app": app.Name, "route": route.Path, "image": route.Image})
 
-	params, match := matchRoute(route.Path, path)
-	if !match {
-		return false
-	}
+	// TODO: what is this for? Looks like it was for dynamic paths, which we don't have
+	// params, match := matchRoute(route.Path, path)
+	// if !match {
+	// 	return false
+	// }
 
 	var stdout bytes.Buffer // TODO: should limit the size of this, error if gets too big. akin to: https://golang.org/pkg/io/#LimitReader
 
@@ -144,7 +159,7 @@ func (s *Server) serve(ctx context.Context, c *gin.Context, appName string, rout
 	}
 	envVars := map[string]string{
 		"METHOD":   c.Request.Method,
-		"APP_NAME": appName,
+		"APP_NAME": app.Name,
 		"ROUTE":    route.Path,
 		"REQUEST_URL": fmt.Sprintf("%v//%v%v", func() string {
 			if c.Request.TLS == nil {
@@ -165,9 +180,9 @@ func (s *Server) serve(ctx context.Context, c *gin.Context, appName string, rout
 	}
 
 	// params
-	for _, param := range params {
-		envVars[toEnvName("PARAM", param.Key)] = param.Value
-	}
+	// for _, param := range params {
+	// 	envVars[toEnvName("PARAM", param.Key)] = param.Value
+	// }
 
 	// headers
 	for header, value := range c.Request.Header {
@@ -175,7 +190,7 @@ func (s *Server) serve(ctx context.Context, c *gin.Context, appName string, rout
 	}
 
 	cfg := &task.Config{
-		AppName:      appName,
+		AppName:      app.Name,
 		Path:         route.Path,
 		Env:          envVars,
 		Format:       route.Format,
@@ -209,6 +224,10 @@ func (s *Server) serve(ctx context.Context, c *gin.Context, appName string, rout
 	newTask.AppName = cfg.AppName
 
 	switch route.Type {
+	case "app":
+		// full application, we just want to pipe requests directly into the container
+		HERE
+
 	case "async":
 		// Read payload
 		pl, err := ioutil.ReadAll(cfg.Stdin)

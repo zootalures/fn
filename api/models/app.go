@@ -5,8 +5,9 @@ type Tasks []*Task
 type FnCalls []*FnCall
 
 type App struct {
-	Name   string `json:"name"`
-	Routes Routes `json:"routes,omitempty"`
+	Name   string  `json:"name"`
+	Image  *string `json:"image"`
+	Routes Routes  `json:"routes,omitempty"`
 	Config `json:"config"`
 }
 
