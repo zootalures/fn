@@ -88,15 +88,15 @@ func (s *Server) handleRequest(c *gin.Context, enqueue models.Enqueue) {
 
 	var route *models.Route
 	// check if full app container
-	if app.Image != nil && &app.Image != "" {
+	if app.Image != nil && *app.Image != "" {
 		route = &models.Route{
 			AppName: app.Name,
 			Path:    "/",
-			Image:   app.Image,
+			Image:   *app.Image,
 			// TODO: Memory: how do they set this?
 			Type:        "app",
-			Timeout:     5 * time.Minute,
-			IdleTimeout: 60 * time.Second,
+			Timeout:     int32((5 * time.Minute).Seconds()),
+			IdleTimeout: int32((60 * time.Second).Seconds()),
 		}
 	} else {
 		log.WithFields(logrus.Fields{"app": appName, "path": path}).Debug("Finding route on datastore")
@@ -116,7 +116,7 @@ func (s *Server) handleRequest(c *gin.Context, enqueue models.Enqueue) {
 	log.Debug("Got route from datastore")
 
 	// Run the function!
-	if s.serve(ctx, c, appName, app, route, reqID, payload, enqueue) {
+	if s.serve(ctx, c, app, route, reqID, payload, enqueue) {
 		s.FireAfterDispatch(ctx, reqRoute)
 		return
 	}
