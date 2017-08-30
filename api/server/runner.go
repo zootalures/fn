@@ -144,7 +144,7 @@ func (s *Server) serve(ctx context.Context, c *gin.Context, appName string, rout
 
 	// baseVars are the vars on the route & app, not on this specific request [for hot functions]
 	baseVars := make(map[string]string, len(app.Config)+len(route.Config)+3)
-	baseVars["FN_FORMAT"] = route.Format
+	baseVars["FORMAT"] = route.Format
 	baseVars["APP_NAME"] = appName
 	baseVars["ROUTE"] = route.Path
 	baseVars["MEMORY_MB"] = fmt.Sprintf("%d", route.Memory)
@@ -166,14 +166,16 @@ func (s *Server) serve(ctx context.Context, c *gin.Context, appName string, rout
 		envVars[k] = v
 	}
 
-	envVars["CALL_ID"] = reqID
-	envVars["METHOD"] = c.Request.Method
-	envVars["REQUEST_URL"] = fmt.Sprintf("%v://%v%v", func() string {
+	rURL := fmt.Sprintf("%v://%v%v", func() string {
 		if c.Request.TLS == nil {
 			return "http"
 		}
 		return "https"
 	}(), c.Request.Host, c.Request.URL.String())
+	// TODO: these envVars should be set in the protocols, rather than here.
+	envVars["CALL_ID"] = reqID
+	envVars["METHOD"] = c.Request.Method
+	envVars["REQUEST_URL"] = rURL
 
 	// params
 	for _, param := range params {
@@ -192,6 +194,8 @@ func (s *Server) serve(ctx context.Context, c *gin.Context, appName string, rout
 		Env:          envVars,
 		Format:       route.Format,
 		ID:           reqID,
+		Method:       c.Request.Method,
+		RequestURL:   rURL,
 		Image:        route.Image,
 		Memory:       route.Memory,
 		Stdin:        payload,

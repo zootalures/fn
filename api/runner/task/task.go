@@ -18,6 +18,8 @@ type Config struct {
 	AppName      string
 	Path         string
 	Image        string
+	Method       string
+	RequestURL   string
 	Timeout      time.Duration
 	IdleTimeout  time.Duration
 	Memory       uint64

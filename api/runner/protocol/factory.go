@@ -28,7 +28,9 @@ type Protocol string
 const (
 	Default Protocol = models.FormatDefault
 	HTTP    Protocol = models.FormatHTTP
-	Empty   Protocol = ""
+	// TODO: change below to models after generating
+	JSON  Protocol = models.FormatJSON
+	Empty Protocol = ""
 )
 
 func (p *Protocol) UnmarshalJSON(b []byte) error {
@@ -49,6 +51,8 @@ func (p Protocol) MarshalJSON() ([]byte, error) {
 		return []byte(Default), nil
 	case HTTP:
 		return []byte(HTTP), nil
+	case JSON:
+		return []byte(JSON), nil
 	}
 	return nil, errInvalidProtocol
 }
@@ -65,6 +69,8 @@ func New(p Protocol, in io.Writer, out io.Reader) ContainerIO {
 	switch p {
 	case HTTP:
 		return &HTTPProtocol{in, out}
+	case JSON:
+		return &JSONProtocol{in, out}
 	case Default, Empty:
 		return &DefaultProtocol{}
 	}

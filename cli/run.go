@@ -16,7 +16,8 @@ import (
 
 const (
 	DefaultFormat = "default"
-	HttpFormat    = "http"
+	HTTPFormat    = "http"
+	JSONFormat    = "json"
 	LocalTestURL  = "http://localhost:8080/myapp/hello"
 )
 
@@ -118,7 +119,7 @@ func runff(ff *funcfile, stdin io.Reader, stdout, stderr io.Writer, method strin
 	runEnv = append(runEnv, kvEq("REQUEST_URL", LocalTestURL))
 	runEnv = append(runEnv, kvEq("APP_NAME", "myapp"))
 	runEnv = append(runEnv, kvEq("ROUTE", "/hello")) // TODO: should we change this to PATH ?
-	runEnv = append(runEnv, kvEq("FN_FORMAT", format))
+	runEnv = append(runEnv, kvEq("FORMAT", format))
 	runEnv = append(runEnv, kvEq("MEMORY_MB", fmt.Sprintf("%d", ff.Memory)))
 
 	// add user defined envs
@@ -147,7 +148,7 @@ func runff(ff *funcfile, stdin io.Reader, stdout, stderr io.Writer, method strin
 		// I'm starting to think maybe `fn run` locally should work the same whether sync or async?  Or how would we allow to test the output?
 	}
 	body := "" // used for hot functions
-	if format == HttpFormat {
+	if format == HTTPFormat {
 		// let's swap out stdin for http formatted message
 		input := []byte("")
 		if stdin != nil {
@@ -174,6 +175,8 @@ func runff(ff *funcfile, stdin io.Reader, stdout, stderr io.Writer, method strin
 		body = b.String()
 		// fmt.Println("body:", s)
 		stdin = strings.NewReader(body)
+	} else if format == JSONFormat {
+
 	}
 
 	sh = append(sh, ff.FullName())

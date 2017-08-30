@@ -18,6 +18,8 @@ const (
 	FormatDefault = "default"
 	// FormatHTTP ...
 	FormatHTTP = "http"
+	// FormatJSON ...
+	FormatJSON = "json"
 )
 
 // TODO this should either be Task, or should be removed in favor of Task
