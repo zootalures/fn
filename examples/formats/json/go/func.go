@@ -11,6 +11,11 @@ type Person struct {
 	Name string
 }
 
+func (a *Person) UnmarshalJSON(b []byte) error {
+        a.Name = string(b)
+        return nil
+}
+
 type JSONInput struct {
 	RequestURL string `json:"request_url"`
 	CallID     string `json:"call_id"`
