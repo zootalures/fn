@@ -11,16 +11,11 @@ type Person struct {
 	Name string
 }
 
-func (a *Person) UnmarshalJSON(b []byte) error {
-	a.Name = string(b)
-	return nil
-}
-
 type JSONInput struct {
 	RequestURL string `json:"request_url"`
 	CallID     string `json:"call_id"`
 	Method     string `json:"method"`
-	Body       Person `json:"body"`
+	Body       string `json:"body"`
 }
 
 func (a *JSONInput) String() string {
@@ -38,22 +33,29 @@ func main() {
 	// mapD := map[string]string{"message": fmt.Sprintf("Hello %s", p.Name)}
 	// mapB, _ := json.Marshal(mapD)
 	// fmt.Println(string(mapB))
-	log.Println("IN func.go")
 
 	dec := json.NewDecoder(os.Stdin)
 	enc := json.NewEncoder(os.Stdout)
+	var loopCounter = 0
 	for {
-		//in := &JSONInput{Body: Person{Name: "World"}}
+		loopCounter++
+		log.Println("loopCounter:", loopCounter)
+
 		in := &JSONInput{}
 		if err := dec.Decode(in); err != nil {
 			log.Fatalln(err)
 			return
 		}
-		in.Body = Person{Name: "World"}
+		log.Println("JSONInput: ", in)
 
-		log.Println(in)
+		person := Person{}
+		if err := json.Unmarshal([]byte(in.Body), &person); err != nil {
+			log.Fatalln(err)
+		}
 
-		mapResult := map[string]string{"message": fmt.Sprintf("Hello %s", in.Body.Name)}
+		log.Println("Person: ", person)
+
+		mapResult := map[string]string{"message": fmt.Sprintf("Hello %s", person.Name)}
 		out := &JSONOutput{}
 		b, _ := json.Marshal(mapResult)
 		out.Body = string(b)
