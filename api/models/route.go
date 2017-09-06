@@ -97,7 +97,7 @@ func (r *Route) Validate(skipZero bool) error {
 	}
 
 	if !skipZero || r.Format != "" {
-		if r.Format != FormatDefault && r.Format != FormatHTTP {
+		if r.Format != FormatDefault && r.Format != FormatHTTP  && r.Format != FormatJSON {
 			return ErrRoutesValidationInvalidFormat
 		}
 	}
