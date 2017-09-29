@@ -1,7 +1,7 @@
-# Oracle Functions LoadBalancer
+# Fn LoadBalancer
 
-## Loadbalancing several Oracle Functions
-You can run multiple Oracle Functions instances and balance the load amongst them using `fnlb` as follows:
+## Loadbalancing several Fn Instances
+You can run multiple Fn instances and balance the load amongst them using `fnlb` as follows:
 
 ```sh
 fnlb --listen <address-for-incoming> --nodes <node1>,<node2>,<node3>

@@ -1,4 +1,4 @@
-# HOWTO run Oracle Functions in Kubernetes at AWS
+# HOWTO run Fn in Kubernetes at AWS
 
 *Prerequisite 1: it assumes you have a working Kubernetes, and a locally configured kubectl.*
 
@@ -9,7 +9,7 @@
 
 ### Steps
 
-1. Start Oracle Functions in the Kubernetes cluster:
+1. Start Fn in the Kubernetes cluster:
 ```ShellSession
 $ cd docs/
 $ kubectl create -f kubernetes-quick
@@ -71,7 +71,7 @@ Hello Johnny!
 
 ### Steps
 
-1. Start Oracle Functions and its dependencies:
+1. Start Fn and its dependencies:
 ```ShellSession
 $ cd docs/
 $ kubectl create -f kubernetes-production

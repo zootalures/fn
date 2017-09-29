@@ -1,6 +1,6 @@
-# Docker Swarm and Oracle Functions
+# Docker Swarm and Fn
 
-How to run Oracle Functions as a scheduler on top of Docker Standalone Swarm cluster.
+How to run Fn as a scheduler on top of Docker Standalone Swarm cluster.
 
 ## Quick installation
 
@@ -8,11 +8,11 @@ How to run Oracle Functions as a scheduler on top of Docker Standalone Swarm clu
 
 *Prerequisite 2: It assumes that your running environment is already configured to use Swarm's master scheduler.*
 
-This is a step-by-step procedure to execute Oracle Functions on top of Docker Swarm cluster. It works by having Oracle Functions daemon started through Swarm's master, and there enqueueing tasks through Swarm API.
+This is a step-by-step procedure to execute Fn on top of Docker Swarm cluster. It works by having the Fn daemon started through Swarm's master, and there enqueueing tasks through Swarm API.
 
 ### Steps
 
-1. Start Oracle Functions in the Swarm Master. It expects all basic Docker environment variables to be present (DOCKER_TLS_VERIFY, DOCKER_HOST, DOCKER_CERT_PATH, DOCKER_MACHINE_NAME). The important part is that the working Swarm master environment must be passed to Functions daemon:
+1. Start Fn in the Swarm Master. It expects all basic Docker environment variables to be present (DOCKER_TLS_VERIFY, DOCKER_HOST, DOCKER_CERT_PATH, DOCKER_MACHINE_NAME). The important part is that the working Swarm master environment must be passed to Functions daemon:
 ```ShellSession
 $ docker login # if you plan to use private images
 $ docker volume create --name functions-datafiles
@@ -35,7 +35,7 @@ CONTAINER ID        IMAGE                COMMAND                  CREATED       
 5a0846e6a025        treeder/functions       "/usr/local/bin/entry"   59 seconds ago      Up 58 seconds       2375/tcp, 10.0.0.1:8080->8080/tcp   swarm-agent-00/functions
 ````
 
-Note `10.0.0.1:8080` in `PORTS` column, this is where the service is listening. Oracle Functions will use Docker Swarm scheduler to deliver tasks to all nodes present in the cluster.
+Note `10.0.0.1:8080` in `PORTS` column, this is where the service is listening. Fn will use Docker Swarm scheduler to deliver tasks to all nodes present in the cluster.
 
 3. Test the cluster:
 
@@ -58,7 +58,7 @@ Hello Johnny!
 
 *Prerequisite 2: It assumes that your running environment is already configured to use Swarm's master scheduler.*
 
-This is a step-by-step procedure to execute Oracle Functions on top of Docker Swarm cluster. It works by having Oracle Functions daemon started through Swarm's master, however the tasks are executed on each host locally. In production, database and message queue must be external to Oracle Functions execution, this guarantees robustness of the service against failures.
+This is a step-by-step procedure to execute Fn on top of Docker Swarm cluster. It works by having Fn daemon started through Swarm's master, however the tasks are executed on each host locally. In production, database and message queue must be external to Fn execution, this guarantees robustness of the service against failures.
 
 We strongly recommend you deploy your own HA Redis and PostgreSQL clusters. Otherwise, you can follow the instructions below and have them set in single nodes.
 
@@ -74,7 +74,7 @@ docker-machine create -d virtualbox --swarm --swarm-master --swarm-discovery etc
 # Set aside one host for DB activities
 docker-machine create -d virtualbox --engine-label use=db --swarm --swarm-discovery etcd://$ETCD_HOST:2379/swarm --engine-opt="cluster-store=etcd://$ETCD_HOST:2379/network" --engine-opt="cluster-advertise=eth1:2376" swarm-db;
 
-# The rest is a horizontally scalable set of hosts for Oracle Functions
+# The rest is a horizontally scalable set of hosts for Fn
 docker-machine create -d virtualbox --engine-label use=worker --swarm --swarm-discovery etcd://$ETCD_HOST:2379/swarm --engine-opt="cluster-store=etcd://$ETCD_HOST:2379/network" --engine-opt="cluster-advertise=eth1:2376" swarm-worker-00;
 docker-machine create -d virtualbox --engine-label use=worker --swarm --swarm-discovery etcd://$ETCD_HOST:2379/swarm --engine-opt="cluster-store=etcd://$ETCD_HOST:2379/network" --engine-opt="cluster-advertise=eth1:2376" swarm-worker-01
 ```
@@ -83,7 +83,7 @@ docker-machine create -d virtualbox --engine-label use=worker --swarm --swarm-di
 
 If you using externally deployed Redis and PostgreSQL cluster, you may skip to step 4.
 
-1. Build a multi-host network for Oracle Functions:
+1. Build a multi-host network for Fn:
 ```ShellSession
 $ docker network create --driver overlay --subnet=10.0.9.0/24 functions-network
 ````
@@ -100,7 +100,7 @@ $ docker create -e constraint:use==db --network=functions-network -v /var/lib/po
 $ docker run -d -e constraint:use==db --network=functions-network --volumes-from postgresql-data --name functions-postgres -e POSTGRES_PASSWORD=mysecretpassword postgres
 ```
 
-4. Start Oracle Functions:
+4. Start Fn:
 ```ShellSession
 $ docker run -d --name functions-00 \
         -l functions \

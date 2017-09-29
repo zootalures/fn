@@ -1,6 +1,6 @@
 # Hot functions
 
-Oracle Functions is built on top of container technologies, for each incoming
+Fn is built on top of container technologies, for each incoming
 workload, it spins a new container, feed it with the payload and sends the
 answer back to the caller. You can expect an average start time of 300ms per
 container. You may refer to [this blog](https://medium.com/travis-on-docker/the-overhead-of-docker-run-f2f06d47c9f3#.96tj75ugb) post to understand the details better.

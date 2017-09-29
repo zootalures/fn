@@ -1,4 +1,4 @@
-# Contributing to Oracle Functions
+# Contributing to Fn
 
 We welcome all contributions!
 
