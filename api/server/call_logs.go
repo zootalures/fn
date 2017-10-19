@@ -12,19 +12,35 @@ func (s *Server) handleCallLogGet(c *gin.Context) {
 
 	appName := c.MustGet(api.AppName).(string)
 	callID := c.Param(api.Call)
-	_, err := s.Datastore.GetCall(ctx, appName, callID)
+	log, err := s.LogDB.GetLog(ctx, appName, callID)
 	if err != nil {
 		handleErrorResponse(c, err)
 		return
 	}
 
-	callObj, err := s.LogDB.GetLog(ctx, appName, callID)
-	if err != nil {
-		handleErrorResponse(c, err)
-		return
+	var isGZIP bool
+	gzipped, err := gzip.NewReader(log)
+	if err == nil {
+		log = gzipped
+		isGZIP = true
 	}
 
-	c.JSON(http.StatusOK, callLogResponse{"Successfully loaded call", callObj})
+	_, gzipped := log.(*gzip.Reader)
+
+	for _, h := range req.Header["Accept-Encoding"] {
+		if h == "gzip" && gzipped {
+			io.Copy(c.Writer, log)
+			return
+		}
+	}
+
+	callObj := models.CallLog{
+		CallID:  callID,
+		AppName: appName,
+		Log:     log,
+	}
+
+	c.JSON(http.StatusOK, callLogResponse{"Successfully loaded log", callObj})
 }
 
 func (s *Server) handleCallLogDelete(c *gin.Context) {
@@ -32,12 +48,7 @@ func (s *Server) handleCallLogDelete(c *gin.Context) {
 
 	appName := c.MustGet(api.AppName).(string)
 	callID := c.Param(api.Call)
-	_, err := s.Datastore.GetCall(ctx, appName, callID)
-	if err != nil {
-		handleErrorResponse(c, err)
-		return
-	}
-	err = s.LogDB.DeleteLog(ctx, appName, callID)
+	err := s.LogDB.DeleteLog(ctx, appName, callID)
 	if err != nil {
 		handleErrorResponse(c, err)
 		return

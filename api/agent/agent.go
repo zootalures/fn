@@ -565,6 +565,10 @@ func (a *agent) prepCold(ctx context.Context, slots chan<- slot, call *call, tok
 	case <-ctx.Done():
 		slot.Close() // if we can't send this slot, need to take care of it ourselves
 	}
+
+	// link the container id and id in the logs [for us!]
+	common.Logger(ctx).WithField("container_id", container.id).Info("starting call")
+
 	return nil
 }
 
