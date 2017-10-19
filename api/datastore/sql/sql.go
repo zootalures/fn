@@ -540,7 +540,7 @@ func (ds *sqlStore) InsertLog(ctx context.Context, appName, callID string, logR 
 	return err
 }
 
-func (ds *sqlStore) GetLog(ctx context.Context, appName, callID string) (*models.CallLog, error) {
+func (ds *sqlStore) GetLog(ctx context.Context, appName, callID string) (io.Reader, error) {
 	query := ds.db.Rebind(`SELECT log FROM logs WHERE id=? AND app_name=?`)
 	row := ds.db.QueryRowContext(ctx, query, callID, appName)
 
@@ -553,11 +553,7 @@ func (ds *sqlStore) GetLog(ctx context.Context, appName, callID string) (*models
 		return nil, err
 	}
 
-	return &models.CallLog{
-		CallID:  callID,
-		Log:     log,
-		AppName: appName,
-	}, nil
+	return strings.NewReader(log), nil
 }
 
 func (ds *sqlStore) DeleteLog(ctx context.Context, appName, callID string) error {

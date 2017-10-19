@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"compress/gzip"
 	"errors"
 	"fmt"
 	"io"
@@ -36,8 +37,11 @@ func setupLogger(logger logrus.FieldLogger) io.ReadWriteCloser {
 
 	const MB = 1 * 1024 * 1024 // pick a number any number.. TODO configurable ?
 
-	// we don't need to log per line to db, but we do need to limit it
-	limitw := &nopCloser{newLimitWriter(MB, dbuf)}
+	// we don't need to log per line to db, but we do need to limit it.
+	// also gzip all logs on the fly to store in db (save bytes instead of
+	// compressing later)
+	gzipWriter := gzip.NewWriter(dbuf)
+	limitw := newLimitWriter(MB, gzipWriter)
 
 	// TODO / NOTE: we want linew to be first because limitw may error if limit
 	// is reached but we still want to log. we should probably ignore hitting the
@@ -48,7 +52,7 @@ func setupLogger(logger logrus.FieldLogger) io.ReadWriteCloser {
 	return &rwc{mw, dbuf}
 }
 
-// implements io.ReadWriteCloser, keeps the buffer for all its handy methods
+// implements io.ReadWriteCloser, keeps the buffer for all its handy methods (Read)
 type rwc struct {
 	io.WriteCloser
 	*bytes.Buffer
@@ -65,12 +69,6 @@ type fCloser struct {
 
 func (f *fCloser) Write(b []byte) (int, error) { return len(b), nil }
 func (f *fCloser) Close() error                { return f.close() }
-
-type nopCloser struct {
-	io.Writer
-}
-
-func (n *nopCloser) Close() error { return nil }
 
 // multiWriteCloser returns the first write or close that returns a non-nil
 // err, if no non-nil err is returned, then the returned bytes written will be
@@ -166,14 +164,17 @@ func (li *lineWriter) Close() error {
 // io.Writer that allows limiting bytes written to w
 type limitWriter struct {
 	n, max int
-	io.Writer
+	io.WriteCloser
 }
 
-func newLimitWriter(max int, w io.Writer) io.Writer {
-	return &limitWriter{max: max, Writer: w}
+func newLimitWriter(max int, w io.WriteCloser) io.WriteCloser {
+	return &limitWriter{max: max, WriteCloser: w}
 }
 
 func (l *limitWriter) Write(b []byte) (int, error) {
+	// TODO since we're writing to a gzip log, should we count uncompressed bytes instead? if they log 7 million A's
+	// we're still going to have really giant buffers to read this
+
 	if l.n >= l.max {
 		return 0, errors.New("max log size exceeded, truncating log")
 	}
@@ -181,11 +182,11 @@ func (l *limitWriter) Write(b []byte) (int, error) {
 		// cut off to prevent gigantic line attack
 		b = b[:l.max-l.n]
 	}
-	n, err := l.Writer.Write(b)
+	n, err := l.WriteCloser.Write(b)
 	l.n += n
 	if l.n >= l.max {
 		// write in truncation message to log once
-		l.Writer.Write([]byte(fmt.Sprintf("\n-----max log size %d bytes exceeded, truncating log-----\n", l.max)))
+		l.WriteCloser.Write([]byte(fmt.Sprintf("\n-----max log size %d bytes exceeded, truncating log-----\n", l.max)))
 	}
 	return n, err
 }
