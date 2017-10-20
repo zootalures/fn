@@ -25,10 +25,10 @@ func setupLogger(logger logrus.FieldLogger) io.ReadWriteCloser {
 
 	close := func() error {
 		// TODO we may want to toss out buffers that grow to grotesque size but meh they will prob get GC'd
-		lbuf.Reset()
-		dbuf.Reset()
-		bufPool.Put(lbuf)
-		logPool.Put(dbuf)
+		//lbuf.Reset()
+		//dbuf.Reset()
+		//bufPool.Put(lbuf)
+		//logPool.Put(dbuf)
 		return nil
 	}
 
@@ -77,6 +77,7 @@ type multiWriteCloser []io.WriteCloser
 
 func (m multiWriteCloser) Write(b []byte) (n int, err error) {
 	for _, mw := range m {
+		fmt.Println("SUP", string(b))
 		n, err = mw.Write(b)
 		if err != nil {
 			return n, err
@@ -89,6 +90,7 @@ func (m multiWriteCloser) Close() (err error) {
 	for _, mw := range m {
 		err = mw.Close()
 		if err != nil {
+			fmt.Println("CLOSEERR", err)
 			return err
 		}
 	}
@@ -172,19 +174,21 @@ func newLimitWriter(max int, w io.WriteCloser) io.WriteCloser {
 }
 
 func (l *limitWriter) Write(b []byte) (int, error) {
-	// NOTE: return len(b) instead of the number of bytes written because we are
-	// using a gzip writer underneath and want to avoid buffer attacks where e.g.
-	// user writes 7 trillion 'A' to log and it's a few bytes compressed but is
-	// 7000 GB to decompress it and we OOM.
+	// NOTE: return & use len(b) instead of the number of bytes written because
+	// we are using a gzip writer underneath and want to avoid buffer attacks
+	// where e.g.  user writes 7 trillion 'A' to log and it's a few bytes
+	// compressed but is 7000 GB to decompress it and we OOM.
 
 	if l.n >= l.max {
 		return 0, errors.New("max log size exceeded, truncating log")
 	}
+
 	if l.n+len(b) >= l.max {
 		// cut off to prevent gigantic line attack
 		b = b[:l.max-l.n]
 	}
-	_, err := l.WriteCloser.Write(b)
+	n, err := l.WriteCloser.Write(b)
+	fmt.Printf("YOYO %s %d %d %T %v", string(b), n, len(b), l.WriteCloser, err)
 	l.n += len(b)
 	if l.n >= l.max {
 		// write in truncation message to log once

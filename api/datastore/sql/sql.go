@@ -524,17 +524,20 @@ func (ds *sqlStore) GetCalls(ctx context.Context, filter *models.CallFilter) ([]
 
 func (ds *sqlStore) InsertLog(ctx context.Context, appName, callID string, logR io.Reader) error {
 	// coerce this into a string for sql
-	var log string
-	if stringer, ok := logR.(fmt.Stringer); ok {
-		log = stringer.String()
+	var log []byte
+	if stringer, ok := logR.(interface {
+		Bytes() []byte
+	}); ok {
+		log = stringer.Bytes()
 	} else {
 		// TODO we could optimize for Size / buffer pool, but atm we aren't hitting
 		// this code path anyway (a fallback)
 		var b bytes.Buffer
 		io.Copy(&b, logR)
-		log = b.String()
+		log = b.Bytes()
 	}
 
+	fmt.Println("INSERT", string(log))
 	query := ds.db.Rebind(`INSERT INTO logs (id, app_name, log) VALUES (?, ?, ?);`)
 	_, err := ds.db.ExecContext(ctx, query, callID, appName, log)
 	return err
@@ -544,7 +547,7 @@ func (ds *sqlStore) GetLog(ctx context.Context, appName, callID string) (io.Read
 	query := ds.db.Rebind(`SELECT log FROM logs WHERE id=? AND app_name=?`)
 	row := ds.db.QueryRowContext(ctx, query, callID, appName)
 
-	var log string
+	var log []byte
 	err := row.Scan(&log)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -553,7 +556,8 @@ func (ds *sqlStore) GetLog(ctx context.Context, appName, callID string) (io.Read
 		return nil, err
 	}
 
-	return strings.NewReader(log), nil
+	fmt.Println(string(log), len(log))
+	return bytes.NewReader(log), nil
 }
 
 func (ds *sqlStore) DeleteLog(ctx context.Context, appName, callID string) error {

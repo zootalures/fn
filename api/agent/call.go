@@ -346,12 +346,13 @@ func (c *call) End(ctx context.Context, err error) {
 		common.Logger(ctx).WithError(err).Error("error inserting call into datastore")
 	}
 
+	// NOTE call this after InsertLog or the buffer will get reset
+	c.stderr.Close()
+
 	if err := c.ds.InsertLog(ctx, c.AppName, c.ID, c.stderr); err != nil {
 		common.Logger(ctx).WithError(err).Error("error uploading log")
 	}
 
-	// NOTE call this after InsertLog or the buffer will get reset
-	c.stderr.Close()
 }
 
 func fakeHandler(http.ResponseWriter, *http.Request, Params) {}

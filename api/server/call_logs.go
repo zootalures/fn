@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -22,8 +23,12 @@ func (s *Server) handleCallLogGet(c *gin.Context) {
 		return
 	}
 
+	fmt.Println(io.Copy(c.Writer, log))
+	return
+
 	ungzip, err := gzip.NewReader(log)
 	isGZIP := err == nil
+	fmt.Println("YODAWG", isGZIP, err, ungzip == nil)
 
 	// TODO we _could_ store the gzipped / ungzipped length so we can set the
 	// content length... leaving as TODO because any log store worth a damn will
@@ -35,7 +40,7 @@ func (s *Server) handleCallLogGet(c *gin.Context) {
 	for _, ah := range c.Request.Header["Accept"] {
 		if ah == "text/plain" {
 			c.Writer.Header().Set("Content-Type", "text/plain")
-			c.Writer.Header().Set("Content-Length", "-1")
+			// c.Writer.Header().Set("Content-Length", "-1") // go barfs on this
 			for _, ae := range c.Request.Header["Accept-Encoding"] {
 				if ae == "gzip" && isGZIP {
 					c.Writer.Header().Set("Content-Encoding", "gzip")
@@ -44,15 +49,24 @@ func (s *Server) handleCallLogGet(c *gin.Context) {
 					return
 				}
 			}
-			// uncompress the gzip to the wire since they can't read it
-			io.Copy(c.Writer, ungzip)
+
+			// they don't accept gzip or the log is not gzipped, so send as plain
+			if isGZIP {
+				fmt.Println(io.Copy(c.Writer, ungzip))
+			} else {
+				io.Copy(c.Writer, log)
+			}
 			return
 		}
 	}
 
 	// otherwise default to json (TODO deprecate this probably? instead of making efficient..)
 	var b bytes.Buffer
-	b.ReadFrom(ungzip)
+	if isGZIP {
+		b.ReadFrom(ungzip)
+	} else {
+		b.ReadFrom(log)
+	}
 
 	callObj := models.CallLog{
 		CallID:  callID,
