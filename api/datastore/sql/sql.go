@@ -556,7 +556,7 @@ func (ds *sqlStore) GetLog(ctx context.Context, appName, callID string) (io.Read
 		return nil, err
 	}
 
-	fmt.Println(string(log), len(log))
+	fmt.Println("GETLOG", string(log), len(log))
 	return bytes.NewReader(log), nil
 }
 

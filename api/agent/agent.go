@@ -494,6 +494,8 @@ func (s *hotSlot) exec(ctx context.Context, call *call) error {
 	// swap in the new stderr logger
 	s.container.swap(call.stderr)
 
+	fmt.Printf("DOTHEYMATCH %p %p %T %T \n", call.w, call.stderr, call.w, call.stderr)
+
 	errApp := make(chan error, 1)
 	go func() {
 		// TODO make sure stdin / stdout not blocked if container dies or we leak goroutine

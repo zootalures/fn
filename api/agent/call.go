@@ -273,7 +273,7 @@ type call struct {
 	mq     models.MessageQueue
 	w      io.Writer
 	req    *http.Request
-	stderr io.ReadWriteCloser
+	stderr io.ReadWriter
 }
 
 func (c *call) Model() *models.Call { return c.Call }
@@ -347,7 +347,7 @@ func (c *call) End(ctx context.Context, err error) {
 	}
 
 	// NOTE call this after InsertLog or the buffer will get reset
-	c.stderr.Close()
+	//c.stderr.Close()
 
 	if err := c.ds.InsertLog(ctx, c.AppName, c.ID, c.stderr); err != nil {
 		common.Logger(ctx).WithError(err).Error("error uploading log")
