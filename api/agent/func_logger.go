@@ -172,8 +172,10 @@ func newLimitWriter(max int, w io.WriteCloser) io.WriteCloser {
 }
 
 func (l *limitWriter) Write(b []byte) (int, error) {
-	// TODO since we're writing to a gzip log, should we count uncompressed bytes instead? if they log 7 million A's
-	// we're still going to have really giant buffers to read this
+	// NOTE: return len(b) instead of the number of bytes written because we are
+	// using a gzip writer underneath and want to avoid buffer attacks where e.g.
+	// user writes 7 trillion 'A' to log and it's a few bytes compressed but is
+	// 7000 GB to decompress it and we OOM.
 
 	if l.n >= l.max {
 		return 0, errors.New("max log size exceeded, truncating log")
@@ -182,11 +184,11 @@ func (l *limitWriter) Write(b []byte) (int, error) {
 		// cut off to prevent gigantic line attack
 		b = b[:l.max-l.n]
 	}
-	n, err := l.WriteCloser.Write(b)
-	l.n += n
+	_, err := l.WriteCloser.Write(b)
+	l.n += len(b)
 	if l.n >= l.max {
 		// write in truncation message to log once
 		l.WriteCloser.Write([]byte(fmt.Sprintf("\n-----max log size %d bytes exceeded, truncating log-----\n", l.max)))
 	}
-	return n, err
+	return len(b), err
 }
