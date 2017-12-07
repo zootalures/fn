@@ -124,8 +124,8 @@ const (
 )
 
 type agent struct {
-	da            DataAccess
-	tp            AgentNodeType
+	da DataAccess
+	tp AgentNodeType
 
 	callListeners []extensions.CallListener
 
