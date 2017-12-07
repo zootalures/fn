@@ -52,12 +52,12 @@ const (
 	DefaultPort     = 8080
 )
 
-type serverNodeType int32
+type ServerNodeType int32
 
 const (
-	nodeTypeFull serverNodeType = iota
-	nodeTypeAPI
-	nodeTypeRunner
+	ServerTypeFull ServerNodeType = iota
+	ServerTypeAPI
+	ServerTypeRunner
 )
 
 type Server struct {
@@ -66,19 +66,19 @@ type Server struct {
 	Datastore    models.Datastore
 	MQ           models.MessageQueue
 	LogDB        models.LogStore
-	nodeType     serverNodeType
+	nodeType     ServerNodeType
 	appListeners []extensions.AppListener
 	middlewares  []Middleware
 }
 
-func nodeTypeFromString(value string) serverNodeType {
+func nodeTypeFromString(value string) ServerNodeType {
 	switch value {
 	case "api":
-		return nodeTypeAPI
+		return ServerTypeAPI
 	case "runner":
-		return nodeTypeRunner
+		return ServerTypeRunner
 	default:
-		return nodeTypeFull
+		return ServerTypeFull
 	}
 }
 
@@ -96,7 +96,7 @@ func NewFromEnv(ctx context.Context, opts ...ServerOption) *Server {
 
 // Create a new server based on the string URLs for each service.
 // Sits in the middle of NewFromEnv and New
-func NewFromURLs(ctx context.Context, dbURL, mqURL, logstoreURL string, nodeType serverNodeType, opts ...ServerOption) *Server {
+func NewFromURLs(ctx context.Context, dbURL, mqURL, logstoreURL string, nodeType ServerNodeType, opts ...ServerOption) *Server {
 	ds, err := datastore.New(dbURL)
 	if err != nil {
 		logrus.WithError(err).Fatalln("Error initializing datastore.")
@@ -136,14 +136,14 @@ func optionalCorsWrap(r *gin.Engine) {
 }
 
 // New creates a new Functions server with the passed in datastore, message queue and API URL
-func New(ctx context.Context, ds models.Datastore, mq models.MessageQueue, ls models.LogStore, nodeType serverNodeType, opts ...ServerOption) *Server {
+func New(ctx context.Context, ds models.Datastore, mq models.MessageQueue, ls models.LogStore, nodeType ServerNodeType, opts ...ServerOption) *Server {
 	setTracer()
 
 	var tp agent.AgentNodeType
 	switch nodeType {
-	case nodeTypeAPI:
+	case ServerTypeAPI:
 		tp = agent.AgentTypeAPI
-	case nodeTypeRunner:
+	case ServerTypeRunner:
 		tp = agent.AgentTypeRunner
 	default:
 		tp = agent.AgentTypeFull
@@ -381,7 +381,7 @@ func (s *Server) bindHandlers(ctx context.Context) {
 	engine.GET("/stats", s.handleStats)
 	engine.GET("/metrics", s.handlePrometheusMetrics)
 
-	if s.nodeType != nodeTypeRunner {
+	if s.nodeType != ServerTypeRunner {
 		v1 := engine.Group("/v1")
 		v1.Use(s.middlewareWrapperFunc(ctx))
 		v1.GET("/apps", s.handleAppList)
