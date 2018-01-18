@@ -549,6 +549,7 @@ func TestPipesAreClear(t *testing.T) {
 	if err == nil {
 		t.Error("expected error but got none")
 	}
+	t.Log("first guy err:", err)
 
 	// TODO we need to make sure we got an http parsing error here (and that it's user friendly for fdks?)
 
