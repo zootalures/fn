@@ -15,17 +15,8 @@ func (s *Server) handleAppDelete(c *gin.Context) {
 
 	app := &models.App{Name: c.MustGet(api.AppName).(string)}
 
-	err := s.FireBeforeAppDelete(ctx, app)
-
 	err = s.datastore.RemoveApp(ctx, app.Name)
 	if err != nil {
-		handleErrorResponse(c, err)
-		return
-	}
-
-	err = s.FireAfterAppDelete(ctx, app)
-	if err != nil {
-		log.WithError(err).Error("error firing after app delete")
 		handleErrorResponse(c, err)
 		return
 	}
