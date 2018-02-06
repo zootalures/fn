@@ -172,6 +172,22 @@ func FromModel(mCall *models.Call) CallOpt {
 	}
 }
 
+func FromModelAndPayload(mCall *models.Call, r io.Reader, w io.Writer) CallOpt {
+	return func(a *agent, c *call) error {
+		c.Call = mCall
+
+		req, err := http.NewRequest(c.Method, c.URL, r)
+		if err != nil {
+			return err
+		}
+		req.Header = c.Headers
+		c.w = w
+		c.req = req
+		// TODO anything else really?
+		return nil
+	}
+}
+
 // TODO this should be required
 func WithWriter(w io.Writer) CallOpt {
 	return func(a *agent, c *call) error {
