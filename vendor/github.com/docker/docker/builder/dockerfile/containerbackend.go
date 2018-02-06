@@ -28,11 +28,10 @@ func newContainerManager(docker builder.ExecBackend) *containerManager {
 }
 
 // Create a container
-func (c *containerManager) Create(runConfig *container.Config, hostConfig *container.HostConfig, platform string) (container.ContainerCreateCreatedBody, error) {
+func (c *containerManager) Create(runConfig *container.Config, hostConfig *container.HostConfig) (container.ContainerCreateCreatedBody, error) {
 	container, err := c.backend.ContainerCreate(types.ContainerCreateConfig{
 		Config:     runConfig,
 		HostConfig: hostConfig,
-		Platform:   platform,
 	})
 	if err != nil {
 		return container, err
@@ -103,7 +102,7 @@ func (c *containerManager) Run(ctx context.Context, cID string, stdout, stderr i
 
 func logCancellationError(cancelErrCh chan error, msg string) {
 	if cancelErr := <-cancelErrCh; cancelErr != nil {
-		logrus.Debugf("Build cancelled (%v): ", cancelErr, msg)
+		logrus.Debugf("Build cancelled (%v): %s", cancelErr, msg)
 	}
 }
 

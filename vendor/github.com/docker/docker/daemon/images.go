@@ -3,7 +3,6 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
-	"runtime"
 	"sort"
 	"time"
 
@@ -36,12 +35,7 @@ func (r byCreated) Less(i, j int) bool { return r[i].Created < r[j].Created }
 
 // Map returns a map of all images in the ImageStore
 func (daemon *Daemon) Map() map[image.ID]*image.Image {
-	// TODO @jhowardmsft LCOW. This will need  work to enumerate the stores for all platforms.
-	platform := runtime.GOOS
-	if system.LCOWSupported() {
-		platform = "linux"
-	}
-	return daemon.stores[platform].imageStore.Map()
+	return daemon.imageStore.Map()
 }
 
 // Images returns a filtered list of images. filterArgs is a JSON-encoded set
@@ -50,13 +44,6 @@ func (daemon *Daemon) Map() map[image.ID]*image.Image {
 // named all controls whether all images in the graph are filtered, or just
 // the heads.
 func (daemon *Daemon) Images(imageFilters filters.Args, all bool, withExtraAttrs bool) ([]*types.ImageSummary, error) {
-
-	// TODO @jhowardmsft LCOW. This will need  work to enumerate the stores for all platforms.
-	platform := runtime.GOOS
-	if system.LCOWSupported() {
-		platform = "linux"
-	}
-
 	var (
 		allImages    map[image.ID]*image.Image
 		err          error
@@ -67,7 +54,7 @@ func (daemon *Daemon) Images(imageFilters filters.Args, all bool, withExtraAttrs
 		return nil, err
 	}
 
-	if imageFilters.Include("dangling") {
+	if imageFilters.Contains("dangling") {
 		if imageFilters.ExactMatch("dangling", "true") {
 			danglingOnly = true
 		} else if !imageFilters.ExactMatch("dangling", "false") {
@@ -75,9 +62,9 @@ func (daemon *Daemon) Images(imageFilters filters.Args, all bool, withExtraAttrs
 		}
 	}
 	if danglingOnly {
-		allImages = daemon.stores[platform].imageStore.Heads()
+		allImages = daemon.imageStore.Heads()
 	} else {
-		allImages = daemon.stores[platform].imageStore.Map()
+		allImages = daemon.imageStore.Map()
 	}
 
 	var beforeFilter, sinceFilter *image.Image
@@ -116,7 +103,7 @@ func (daemon *Daemon) Images(imageFilters filters.Args, all bool, withExtraAttrs
 			}
 		}
 
-		if imageFilters.Include("label") {
+		if imageFilters.Contains("label") {
 			// Very old image that do not have image.Config (or even labels)
 			if img.Config == nil {
 				continue
@@ -127,10 +114,17 @@ func (daemon *Daemon) Images(imageFilters filters.Args, all bool, withExtraAttrs
 			}
 		}
 
+		// Skip any images with an unsupported operating system to avoid a potential
+		// panic when indexing through the layerstore. Don't error as we want to list
+		// the other images. This should never happen, but here as a safety precaution.
+		if !system.IsOSSupported(img.OperatingSystem()) {
+			continue
+		}
+
 		layerID := img.RootFS.ChainID()
 		var size int64
 		if layerID != "" {
-			l, err := daemon.stores[platform].layerStore.Get(layerID)
+			l, err := daemon.layerStores[img.OperatingSystem()].Get(layerID)
 			if err != nil {
 				// The layer may have been deleted between the call to `Map()` or
 				// `Heads()` and the call to `Get()`, so we just ignore this error
@@ -141,7 +135,7 @@ func (daemon *Daemon) Images(imageFilters filters.Args, all bool, withExtraAttrs
 			}
 
 			size, err = l.Size()
-			layer.ReleaseAndLog(daemon.stores[platform].layerStore, l)
+			layer.ReleaseAndLog(daemon.layerStores[img.OperatingSystem()], l)
 			if err != nil {
 				return nil, err
 			}
@@ -150,7 +144,7 @@ func (daemon *Daemon) Images(imageFilters filters.Args, all bool, withExtraAttrs
 		newImage := newImage(img, size)
 
 		for _, ref := range daemon.referenceStore.References(id.Digest()) {
-			if imageFilters.Include("reference") {
+			if imageFilters.Contains("reference") {
 				var found bool
 				var matchErr error
 				for _, pattern := range imageFilters.Get("reference") {
@@ -171,13 +165,13 @@ func (daemon *Daemon) Images(imageFilters filters.Args, all bool, withExtraAttrs
 			}
 		}
 		if newImage.RepoDigests == nil && newImage.RepoTags == nil {
-			if all || len(daemon.stores[platform].imageStore.Children(id)) == 0 {
+			if all || len(daemon.imageStore.Children(id)) == 0 {
 
-				if imageFilters.Include("dangling") && !danglingOnly {
+				if imageFilters.Contains("dangling") && !danglingOnly {
 					//dangling=false case, so dangling image is not needed
 					continue
 				}
-				if imageFilters.Include("reference") { // skip images with no references if filtering by reference
+				if imageFilters.Contains("reference") { // skip images with no references if filtering by reference
 					continue
 				}
 				newImage.RepoDigests = []string{"<none>@<none>"}
@@ -193,7 +187,7 @@ func (daemon *Daemon) Images(imageFilters filters.Args, all bool, withExtraAttrs
 			// lazily init variables
 			if imagesMap == nil {
 				allContainers = daemon.List()
-				allLayers = daemon.stores[platform].layerStore.Map()
+				allLayers = daemon.layerStores[img.OperatingSystem()].Map()
 				imagesMap = make(map[*image.Image]*types.ImageSummary)
 				layerRefs = make(map[layer.ChainID]int)
 			}
@@ -261,19 +255,14 @@ func (daemon *Daemon) SquashImage(id, parent string) (string, error) {
 		img *image.Image
 		err error
 	)
-	for _, ds := range daemon.stores {
-		if img, err = ds.imageStore.Get(image.ID(id)); err == nil {
-			break
-		}
-	}
-	if err != nil {
+	if img, err = daemon.imageStore.Get(image.ID(id)); err != nil {
 		return "", err
 	}
 
 	var parentImg *image.Image
 	var parentChainID layer.ChainID
 	if len(parent) != 0 {
-		parentImg, err = daemon.stores[img.Platform()].imageStore.Get(image.ID(parent))
+		parentImg, err = daemon.imageStore.Get(image.ID(parent))
 		if err != nil {
 			return "", errors.Wrap(err, "error getting specified parent layer")
 		}
@@ -283,11 +272,11 @@ func (daemon *Daemon) SquashImage(id, parent string) (string, error) {
 		parentImg = &image.Image{RootFS: rootFS}
 	}
 
-	l, err := daemon.stores[img.Platform()].layerStore.Get(img.RootFS.ChainID())
+	l, err := daemon.layerStores[img.OperatingSystem()].Get(img.RootFS.ChainID())
 	if err != nil {
 		return "", errors.Wrap(err, "error getting image layer")
 	}
-	defer daemon.stores[img.Platform()].layerStore.Release(l)
+	defer daemon.layerStores[img.OperatingSystem()].Release(l)
 
 	ts, err := l.TarStreamFrom(parentChainID)
 	if err != nil {
@@ -295,18 +284,16 @@ func (daemon *Daemon) SquashImage(id, parent string) (string, error) {
 	}
 	defer ts.Close()
 
-	newL, err := daemon.stores[img.Platform()].layerStore.Register(ts, parentChainID, layer.Platform(img.Platform()))
+	newL, err := daemon.layerStores[img.OperatingSystem()].Register(ts, parentChainID)
 	if err != nil {
 		return "", errors.Wrap(err, "error registering layer")
 	}
-	defer daemon.stores[img.Platform()].layerStore.Release(newL)
+	defer daemon.layerStores[img.OperatingSystem()].Release(newL)
 
-	var newImage image.Image
-	newImage = *img
+	newImage := *img
 	newImage.RootFS = nil
 
-	var rootFS image.RootFS
-	rootFS = *parentImg.RootFS
+	rootFS := *parentImg.RootFS
 	rootFS.DiffIDs = append(rootFS.DiffIDs, newL.DiffID())
 	newImage.RootFS = &rootFS
 
@@ -336,7 +323,7 @@ func (daemon *Daemon) SquashImage(id, parent string) (string, error) {
 		return "", errors.Wrap(err, "error marshalling image config")
 	}
 
-	newImgID, err := daemon.stores[img.Platform()].imageStore.Create(b)
+	newImgID, err := daemon.imageStore.Create(b)
 	if err != nil {
 		return "", errors.Wrap(err, "error creating new image after squash")
 	}

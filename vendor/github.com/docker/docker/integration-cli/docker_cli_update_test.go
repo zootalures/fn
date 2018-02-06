@@ -6,14 +6,14 @@ import (
 
 	"github.com/docker/docker/integration-cli/checker"
 	"github.com/docker/docker/integration-cli/cli"
-	icmd "github.com/docker/docker/pkg/testutil/cmd"
 	"github.com/go-check/check"
+	"github.com/gotestyourself/gotestyourself/icmd"
 )
 
 func (s *DockerSuite) TestUpdateRestartPolicy(c *check.C) {
 	out := cli.DockerCmd(c, "run", "-d", "--restart=on-failure:3", "busybox", "sh", "-c", "sleep 1 && false").Combined()
 	timeout := 60 * time.Second
-	if testEnv.DaemonPlatform() == "windows" {
+	if testEnv.OSType == "windows" {
 		timeout = 180 * time.Second
 	}
 

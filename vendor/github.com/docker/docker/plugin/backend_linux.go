@@ -1,5 +1,3 @@
-// +build linux
-
 package plugin
 
 import (
@@ -12,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/docker/distribution/manifest/schema2"
@@ -22,6 +21,7 @@ import (
 	progressutils "github.com/docker/docker/distribution/utils"
 	"github.com/docker/docker/distribution/xfer"
 	"github.com/docker/docker/dockerversion"
+	"github.com/docker/docker/errdefs"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
 	"github.com/docker/docker/pkg/authorization"
@@ -146,7 +146,7 @@ func (s *tempConfigStore) Get(d digest.Digest) ([]byte, error) {
 	return s.config, nil
 }
 
-func (s *tempConfigStore) RootFSAndPlatformFromConfig(c []byte) (*image.RootFS, layer.Platform, error) {
+func (s *tempConfigStore) RootFSAndOSFromConfig(c []byte) (*image.RootFS, string, error) {
 	return configToRootFS(c)
 }
 
@@ -235,7 +235,7 @@ func (pm *Manager) Privileges(ctx context.Context, ref reference.Named, metaHead
 	}
 	var config types.PluginConfig
 	if err := json.Unmarshal(cs.config, &config); err != nil {
-		return nil, systemError{err}
+		return nil, errdefs.System(err)
 	}
 
 	return computePrivileges(config), nil
@@ -257,12 +257,12 @@ func (pm *Manager) Upgrade(ctx context.Context, ref reference.Named, name string
 
 	// revalidate because Pull is public
 	if _, err := reference.ParseNormalizedNamed(name); err != nil {
-		return errors.Wrapf(validationError{err}, "failed to parse %q", name)
+		return errors.Wrapf(errdefs.InvalidParameter(err), "failed to parse %q", name)
 	}
 
 	tmpRootFSDir, err := ioutil.TempDir(pm.tmpDir(), ".rootfs")
 	if err != nil {
-		return errors.Wrap(systemError{err}, "error preparing upgrade")
+		return errors.Wrap(errdefs.System(err), "error preparing upgrade")
 	}
 	defer os.RemoveAll(tmpRootFSDir)
 
@@ -304,17 +304,17 @@ func (pm *Manager) Pull(ctx context.Context, ref reference.Named, name string, m
 	// revalidate because Pull is public
 	nameref, err := reference.ParseNormalizedNamed(name)
 	if err != nil {
-		return errors.Wrapf(validationError{err}, "failed to parse %q", name)
+		return errors.Wrapf(errdefs.InvalidParameter(err), "failed to parse %q", name)
 	}
 	name = reference.FamiliarString(reference.TagNameOnly(nameref))
 
 	if err := pm.config.Store.validateName(name); err != nil {
-		return validationError{err}
+		return errdefs.InvalidParameter(err)
 	}
 
 	tmpRootFSDir, err := ioutil.TempDir(pm.tmpDir(), ".rootfs")
 	if err != nil {
-		return errors.Wrap(systemError{err}, "error preparing pull")
+		return errors.Wrap(errdefs.System(err), "error preparing pull")
 	}
 	defer os.RemoveAll(tmpRootFSDir)
 
@@ -365,7 +365,7 @@ func (pm *Manager) List(pluginFilters filters.Args) ([]types.Plugin, error) {
 
 	enabledOnly := false
 	disabledOnly := false
-	if pluginFilters.Include("enabled") {
+	if pluginFilters.Contains("enabled") {
 		if pluginFilters.ExactMatch("enabled", "true") {
 			enabledOnly = true
 		} else if pluginFilters.ExactMatch("enabled", "false") {
@@ -386,7 +386,7 @@ next:
 		if disabledOnly && p.PluginObj.Enabled {
 			continue
 		}
-		if pluginFilters.Include("capability") {
+		if pluginFilters.Contains("capability") {
 			for _, f := range p.GetTypes() {
 				if !pluginFilters.Match("capability", f.Capability) {
 					continue next
@@ -441,7 +441,8 @@ func (pm *Manager) Push(ctx context.Context, name string, metaHeader http.Header
 		pm:     pm,
 		plugin: p,
 	}
-	ls := &pluginLayerProvider{
+	lss := make(map[string]distribution.PushLayerProvider)
+	lss[runtime.GOOS] = &pluginLayerProvider{
 		pm:     pm,
 		plugin: p,
 	}
@@ -464,7 +465,7 @@ func (pm *Manager) Push(ctx context.Context, name string, metaHeader http.Header
 			RequireSchema2:   true,
 		},
 		ConfigMediaType: schema2.MediaTypePluginConfig,
-		LayerStore:      ls,
+		LayerStores:     lss,
 		UploadManager:   uploadManager,
 	}
 
@@ -533,7 +534,7 @@ func (s *pluginConfigStore) Get(d digest.Digest) ([]byte, error) {
 	return ioutil.ReadAll(rwc)
 }
 
-func (s *pluginConfigStore) RootFSAndPlatformFromConfig(c []byte) (*image.RootFS, layer.Platform, error) {
+func (s *pluginConfigStore) RootFSAndOSFromConfig(c []byte) (*image.RootFS, string, error) {
 	return configToRootFS(c)
 }
 

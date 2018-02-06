@@ -18,12 +18,20 @@ checkfmt:
 
 clear-images:
 	-docker images -q -f dangling=true | xargs docker rmi -f
-	for i in fnproject/fn-test-utils fnproject/hello fnproject/error fnproject/sleeper fnproject/error \
+	for i in fnproject/fn-test-utils fnproject/hello \
 	         fnproject/dind fnproject/fnserver fnproject/fnlb; do \
 	    docker images "$$i" --format '{{ .ID }}\t{{ .Repository }}\t{{ .Tag}}' | while read id repo tag; do \
 	        if [ "$$tag" = "<none>" ]; then docker rmi "$$id"; else docker rmi "$$repo:$$tag"; fi; done; done
 
-	         
+release-fnserver:
+	./release.sh
+
+build-dind:
+	(cd images/dind && ./build.sh)
+
+release-dind:
+	(cd images/dind && ./release.sh)
+
 fn-test-utils: checkfmt
 	cd images/fn-test-utils && ./build.sh
 
@@ -48,10 +56,6 @@ build-static:
 
 full-test: build-static test test-api
 
-img-sleeper:
-	docker pull fnproject/sleeper
-img-error:
-	docker pull fnproject/error
 img-hello:
 	docker pull fnproject/hello
 img-mysql:
@@ -61,7 +65,7 @@ img-postgres:
 img-minio:
 	docker pull minio/minio
 
-pull-images: img-sleeper img-error img-hello img-mysql img-postgres img-minio
+pull-images: img-hello img-mysql img-postgres img-minio
 
 test-datastore:
 	cd api/datastore && go test -v ./...

@@ -2,7 +2,6 @@ package daemon
 
 import (
 	"io"
-	"runtime"
 
 	"github.com/docker/distribution/reference"
 	"github.com/docker/docker/api/types"
@@ -10,8 +9,10 @@ import (
 	"github.com/docker/docker/builder"
 	"github.com/docker/docker/image"
 	"github.com/docker/docker/layer"
+	"github.com/docker/docker/pkg/containerfs"
 	"github.com/docker/docker/pkg/idtools"
 	"github.com/docker/docker/pkg/stringid"
+	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/registry"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -25,9 +26,9 @@ type releaseableLayer struct {
 	rwLayer    layer.RWLayer
 }
 
-func (rl *releaseableLayer) Mount() (string, error) {
+func (rl *releaseableLayer) Mount() (containerfs.ContainerFS, error) {
 	var err error
-	var mountPath string
+	var mountPath containerfs.ContainerFS
 	var chainID layer.ChainID
 	if rl.roLayer != nil {
 		chainID = rl.roLayer.ChainID()
@@ -36,7 +37,7 @@ func (rl *releaseableLayer) Mount() (string, error) {
 	mountID := stringid.GenerateRandomID()
 	rl.rwLayer, err = rl.layerStore.CreateRWLayer(mountID, chainID, nil)
 	if err != nil {
-		return "", errors.Wrap(err, "failed to create rwlayer")
+		return nil, errors.Wrap(err, "failed to create rwlayer")
 	}
 
 	mountPath, err = rl.rwLayer.Mount("")
@@ -48,13 +49,13 @@ func (rl *releaseableLayer) Mount() (string, error) {
 			logrus.Errorf("Failed to release RWLayer: %s", err)
 		}
 		rl.rwLayer = nil
-		return "", err
+		return nil, err
 	}
 
 	return mountPath, nil
 }
 
-func (rl *releaseableLayer) Commit(platform string) (builder.ReleaseableLayer, error) {
+func (rl *releaseableLayer) Commit() (builder.ReleaseableLayer, error) {
 	var chainID layer.ChainID
 	if rl.roLayer != nil {
 		chainID = rl.roLayer.ChainID()
@@ -66,15 +67,11 @@ func (rl *releaseableLayer) Commit(platform string) (builder.ReleaseableLayer, e
 	}
 	defer stream.Close()
 
-	newLayer, err := rl.layerStore.Register(stream, chainID, layer.Platform(platform))
+	newLayer, err := rl.layerStore.Register(stream, chainID)
 	if err != nil {
 		return nil, err
 	}
-
-	if layer.IsEmpty(newLayer.DiffID()) {
-		_, err := rl.layerStore.Release(newLayer)
-		return &releaseableLayer{layerStore: rl.layerStore}, err
-	}
+	// TODO: An optimization would be to handle empty layers before returning
 	return &releaseableLayer{layerStore: rl.layerStore, roLayer: newLayer}, nil
 }
 
@@ -145,7 +142,7 @@ func newReleasableLayerForImage(img *image.Image, layerStore layer.Store) (build
 }
 
 // TODO: could this use the regular daemon PullImage ?
-func (daemon *Daemon) pullForBuilder(ctx context.Context, name string, authConfigs map[string]types.AuthConfig, output io.Writer, platform string) (*image.Image, error) {
+func (daemon *Daemon) pullForBuilder(ctx context.Context, name string, authConfigs map[string]types.AuthConfig, output io.Writer, os string) (*image.Image, error) {
 	ref, err := reference.ParseNormalizedNamed(name)
 	if err != nil {
 		return nil, err
@@ -164,7 +161,7 @@ func (daemon *Daemon) pullForBuilder(ctx context.Context, name string, authConfi
 		pullRegistryAuth = &resolvedConfig
 	}
 
-	if err := daemon.pullImageWithReference(ctx, ref, platform, nil, pullRegistryAuth, output); err != nil {
+	if err := daemon.pullImageWithReference(ctx, ref, os, nil, pullRegistryAuth, output); err != nil {
 		return nil, err
 	}
 	return daemon.GetImage(name)
@@ -175,7 +172,10 @@ func (daemon *Daemon) pullForBuilder(ctx context.Context, name string, authConfi
 // leaking of layers.
 func (daemon *Daemon) GetImageAndReleasableLayer(ctx context.Context, refOrID string, opts backend.GetImageAndLayerOptions) (builder.Image, builder.ReleaseableLayer, error) {
 	if refOrID == "" {
-		layer, err := newReleasableLayerForImage(nil, daemon.stores[opts.Platform].layerStore)
+		if !system.IsOSSupported(opts.OS) {
+			return nil, nil, system.ErrNotSupportedOperatingSystem
+		}
+		layer, err := newReleasableLayerForImage(nil, daemon.layerStores[opts.OS])
 		return nil, layer, err
 	}
 
@@ -186,38 +186,41 @@ func (daemon *Daemon) GetImageAndReleasableLayer(ctx context.Context, refOrID st
 		}
 		// TODO: shouldn't we error out if error is different from "not found" ?
 		if image != nil {
-			layer, err := newReleasableLayerForImage(image, daemon.stores[opts.Platform].layerStore)
+			if !system.IsOSSupported(image.OperatingSystem()) {
+				return nil, nil, system.ErrNotSupportedOperatingSystem
+			}
+			layer, err := newReleasableLayerForImage(image, daemon.layerStores[image.OperatingSystem()])
 			return image, layer, err
 		}
 	}
 
-	image, err := daemon.pullForBuilder(ctx, refOrID, opts.AuthConfig, opts.Output, opts.Platform)
+	image, err := daemon.pullForBuilder(ctx, refOrID, opts.AuthConfig, opts.Output, opts.OS)
 	if err != nil {
 		return nil, nil, err
 	}
-	layer, err := newReleasableLayerForImage(image, daemon.stores[opts.Platform].layerStore)
+	if !system.IsOSSupported(image.OperatingSystem()) {
+		return nil, nil, system.ErrNotSupportedOperatingSystem
+	}
+	layer, err := newReleasableLayerForImage(image, daemon.layerStores[image.OperatingSystem()])
 	return image, layer, err
 }
 
 // CreateImage creates a new image by adding a config and ID to the image store.
 // This is similar to LoadImage() except that it receives JSON encoded bytes of
 // an image instead of a tar archive.
-func (daemon *Daemon) CreateImage(config []byte, parent string, platform string) (builder.Image, error) {
-	if platform == "" {
-		platform = runtime.GOOS
-	}
-	id, err := daemon.stores[platform].imageStore.Create(config)
+func (daemon *Daemon) CreateImage(config []byte, parent string) (builder.Image, error) {
+	id, err := daemon.imageStore.Create(config)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create image")
 	}
 
 	if parent != "" {
-		if err := daemon.stores[platform].imageStore.SetParent(id, image.ID(parent)); err != nil {
+		if err := daemon.imageStore.SetParent(id, image.ID(parent)); err != nil {
 			return nil, errors.Wrapf(err, "failed to set parent %s", parent)
 		}
 	}
 
-	return daemon.stores[platform].imageStore.Get(id)
+	return daemon.imageStore.Get(id)
 }
 
 // IDMappings returns uid/gid mappings for the builder

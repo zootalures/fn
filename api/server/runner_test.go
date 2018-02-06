@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -131,7 +132,7 @@ func TestRouteRunnerExecution(t *testing.T) {
 		[]*models.Route{
 			{Path: "/", AppName: "myapp", Image: "fnproject/hello", Type: "sync", Memory: 128, Timeout: 30, IdleTimeout: 30, Headers: map[string][]string{"X-Function": {"Test"}}},
 			{Path: "/myroute", AppName: "myapp", Image: "fnproject/hello", Type: "sync", Memory: 128, Timeout: 30, IdleTimeout: 30, Headers: map[string][]string{"X-Function": {"Test"}}},
-			{Path: "/myerror", AppName: "myapp", Image: "fnproject/error", Type: "sync", Memory: 128, Timeout: 30, IdleTimeout: 30, Headers: map[string][]string{"X-Function": {"Test"}}},
+			{Path: "/myerror", AppName: "myapp", Image: "fnproject/fn-test-utils", Type: "sync", Memory: 128, Timeout: 30, IdleTimeout: 30, Headers: map[string][]string{"X-Function": {"Test"}}},
 			{Path: "/mydne", AppName: "myapp", Image: "fnproject/imagethatdoesnotexist", Type: "sync", Memory: 128, Timeout: 30, IdleTimeout: 30},
 			{Path: "/mydnehot", AppName: "myapp", Image: "fnproject/imagethatdoesnotexist", Type: "sync", Format: "http", Memory: 128, Timeout: 30, IdleTimeout: 30},
 		}, nil,
@@ -153,14 +154,14 @@ func TestRouteRunnerExecution(t *testing.T) {
 	}{
 		{"/r/myapp/", ``, "GET", http.StatusOK, map[string][]string{"X-Function": {"Test"}}},
 		{"/r/myapp/myroute", ``, "GET", http.StatusOK, map[string][]string{"X-Function": {"Test"}}},
-		{"/r/myapp/myerror", ``, "GET", http.StatusBadGateway, map[string][]string{"X-Function": {"Test"}}},
+		{"/r/myapp/myerror", `{"sleepTime": 0, "isDebug": true, "isCrash": true}`, "GET", http.StatusBadGateway, map[string][]string{"X-Function": {"Test"}}},
 		{"/r/myapp/mydne", ``, "GET", http.StatusNotFound, nil},
 		{"/r/myapp/mydnehot", ``, "GET", http.StatusNotFound, nil},
 
 		// Added same tests again to check if time is reduced by the auth cache
 		{"/r/myapp/", ``, "GET", http.StatusOK, map[string][]string{"X-Function": {"Test"}}},
 		{"/r/myapp/myroute", ``, "GET", http.StatusOK, map[string][]string{"X-Function": {"Test"}}},
-		{"/r/myapp/myerror", ``, "GET", http.StatusBadGateway, map[string][]string{"X-Function": {"Test"}}},
+		{"/r/myapp/myerror", `{"sleepTime": 0, "isDebug": true, "isCrash": true}`, "GET", http.StatusBadGateway, map[string][]string{"X-Function": {"Test"}}},
 	} {
 		body := strings.NewReader(test.body)
 		_, rec := routerRequest(t, srv.Router, test.method, test.path, body)
@@ -290,6 +291,72 @@ func TestRouteRunnerTimeout(t *testing.T) {
 				t.Log(buf.String())
 				t.Errorf("Test %d: Expected header `%s` to be %s but was %s body: %#v",
 					i, name, header[0], rec.Header().Get(name), rec.Body.String())
+			}
+		}
+	}
+}
+
+// Minimal test that checks the possibility of invoking concurrent hot sync functions.
+func TestRouteRunnerMinimalConcurrentHotSync(t *testing.T) {
+	buf := setLogBuffer()
+
+	ds := datastore.NewMockInit(
+		[]*models.App{
+			{Name: "myapp", Config: models.Config{}},
+		},
+		[]*models.Route{
+			{Path: "/hot", AppName: "myapp", Image: "fnproject/fn-test-utils", Type: "sync", Format: "http", Memory: 128, Timeout: 30, IdleTimeout: 5},
+		}, nil,
+	)
+
+	rnr, cancelrnr := testRunner(t, ds)
+	defer cancelrnr()
+
+	fnl := logs.NewMock()
+	srv := testServer(ds, &mqs.Mock{}, fnl, rnr, ServerTypeFull)
+
+	for i, test := range []struct {
+		path            string
+		body            string
+		method          string
+		expectedCode    int
+		expectedHeaders map[string][]string
+	}{
+		{"/r/myapp/hot", `{"sleepTime": 100, "isDebug": true}`, "POST", http.StatusOK, nil},
+	} {
+		errs := make(chan error)
+		numCalls := 4
+		for k := 0; k < numCalls; k++ {
+			go func() {
+				body := strings.NewReader(test.body)
+				_, rec := routerRequest(t, srv.Router, test.method, test.path, body)
+
+				if rec.Code != test.expectedCode {
+					t.Log(buf.String())
+					errs <- fmt.Errorf("Test %d: Expected status code to be %d but was %d body: %#v",
+						i, test.expectedCode, rec.Code, rec.Body.String())
+					return
+				}
+
+				if test.expectedHeaders == nil {
+					errs <- nil
+					return
+				}
+				for name, header := range test.expectedHeaders {
+					if header[0] != rec.Header().Get(name) {
+						t.Log(buf.String())
+						errs <- fmt.Errorf("Test %d: Expected header `%s` to be %s but was %s body: %#v",
+							i, name, header[0], rec.Header().Get(name), rec.Body.String())
+						return
+					}
+				}
+				errs <- nil
+			}()
+		}
+		for k := 0; k < numCalls; k++ {
+			err := <-errs
+			if err != nil {
+				t.Errorf("%v", err)
 			}
 		}
 	}

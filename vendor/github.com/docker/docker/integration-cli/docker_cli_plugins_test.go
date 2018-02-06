@@ -16,8 +16,8 @@ import (
 	"github.com/docker/docker/integration-cli/daemon"
 	"github.com/docker/docker/integration-cli/fixtures/plugin"
 	"github.com/docker/docker/integration-cli/request"
-	icmd "github.com/docker/docker/pkg/testutil/cmd"
 	"github.com/go-check/check"
+	"github.com/gotestyourself/gotestyourself/icmd"
 	"golang.org/x/net/context"
 )
 
@@ -55,7 +55,7 @@ func (ps *DockerPluginSuite) TestPluginBasicOps(c *check.C) {
 	c.Assert(err, checker.IsNil)
 	c.Assert(out, checker.Contains, plugin)
 
-	_, err = os.Stat(filepath.Join(testEnv.DockerBasePath(), "plugins", id))
+	_, err = os.Stat(filepath.Join(testEnv.DaemonInfo.DockerRootDir, "plugins", id))
 	if !os.IsNotExist(err) {
 		c.Fatal(err)
 	}
@@ -168,8 +168,19 @@ func (ps *DockerPluginSuite) TestPluginSet(c *check.C) {
 	defer cancel()
 
 	initialValue := "0"
+	mntSrc := "foo"
+	devPath := "/dev/bar"
+
 	err = plugin.Create(ctx, client, name, func(cfg *plugin.Config) {
 		cfg.Env = []types.PluginEnv{{Name: "DEBUG", Value: &initialValue, Settable: []string{"value"}}}
+		cfg.Mounts = []types.PluginMount{
+			{Name: "pmount1", Settable: []string{"source"}, Type: "none", Source: &mntSrc},
+			{Name: "pmount2", Settable: []string{"source"}, Type: "none"}, // Mount without source is invalid.
+		}
+		cfg.Linux.Devices = []types.PluginDevice{
+			{Name: "pdev1", Path: &devPath, Settable: []string{"path"}},
+			{Name: "pdev2", Settable: []string{"path"}}, // Device without Path is invalid.
+		}
 	})
 	c.Assert(err, checker.IsNil, check.Commentf("failed to create test plugin"))
 
@@ -180,6 +191,23 @@ func (ps *DockerPluginSuite) TestPluginSet(c *check.C) {
 
 	env, _ = dockerCmd(c, "plugin", "inspect", "-f", "{{.Settings.Env}}", name)
 	c.Assert(strings.TrimSpace(env), checker.Equals, "[DEBUG=1]")
+
+	env, _ = dockerCmd(c, "plugin", "inspect", "-f", "{{with $mount := index .Settings.Mounts 0}}{{$mount.Source}}{{end}}", name)
+	c.Assert(strings.TrimSpace(env), checker.Contains, mntSrc)
+
+	dockerCmd(c, "plugin", "set", name, "pmount1.source=bar")
+
+	env, _ = dockerCmd(c, "plugin", "inspect", "-f", "{{with $mount := index .Settings.Mounts 0}}{{$mount.Source}}{{end}}", name)
+	c.Assert(strings.TrimSpace(env), checker.Contains, "bar")
+
+	out, _, err := dockerCmdWithError("plugin", "set", name, "pmount2.source=bar2")
+	c.Assert(err, checker.NotNil)
+	c.Assert(out, checker.Contains, "Plugin config has no mount source")
+
+	out, _, err = dockerCmdWithError("plugin", "set", name, "pdev2.path=/dev/bar2")
+	c.Assert(err, checker.NotNil)
+	c.Assert(out, checker.Contains, "Plugin config has no device path")
+
 }
 
 func (ps *DockerPluginSuite) TestPluginInstallArgs(c *check.C) {
@@ -462,7 +490,7 @@ enabled: false`, id, name)
 }
 
 func (s *DockerSuite) TestPluginUpgrade(c *check.C) {
-	testRequires(c, DaemonIsLinux, Network, SameHostDaemon, IsAmd64)
+	testRequires(c, DaemonIsLinux, Network, SameHostDaemon, IsAmd64, NotUserNamespace)
 	plugin := "cpuguy83/docker-volume-driver-plugin-local:latest"
 	pluginV2 := "cpuguy83/docker-volume-driver-plugin-local:v2"
 
@@ -478,14 +506,14 @@ func (s *DockerSuite) TestPluginUpgrade(c *check.C) {
 	id := strings.TrimSpace(out)
 
 	// make sure "v2" does not exists
-	_, err = os.Stat(filepath.Join(testEnv.DockerBasePath(), "plugins", id, "rootfs", "v2"))
+	_, err = os.Stat(filepath.Join(testEnv.DaemonInfo.DockerRootDir, "plugins", id, "rootfs", "v2"))
 	c.Assert(os.IsNotExist(err), checker.True, check.Commentf(out))
 
 	dockerCmd(c, "plugin", "disable", "-f", plugin)
 	dockerCmd(c, "plugin", "upgrade", "--grant-all-permissions", "--skip-remote-check", plugin, pluginV2)
 
 	// make sure "v2" file exists
-	_, err = os.Stat(filepath.Join(testEnv.DockerBasePath(), "plugins", id, "rootfs", "v2"))
+	_, err = os.Stat(filepath.Join(testEnv.DaemonInfo.DockerRootDir, "plugins", id, "rootfs", "v2"))
 	c.Assert(err, checker.IsNil)
 
 	dockerCmd(c, "plugin", "enable", plugin)

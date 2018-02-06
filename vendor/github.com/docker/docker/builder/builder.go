@@ -12,6 +12,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	containerpkg "github.com/docker/docker/container"
 	"github.com/docker/docker/layer"
+	"github.com/docker/docker/pkg/containerfs"
 	"golang.org/x/net/context"
 )
 
@@ -24,7 +25,7 @@ const (
 // instructions in the builder.
 type Source interface {
 	// Root returns root path for accessing source
-	Root() string
+	Root() containerfs.ContainerFS
 	// Close allows to signal that the filesystem tree won't be used anymore.
 	// For Context implementations using a temporary directory, it is recommended to
 	// delete the temporary directory in Close().
@@ -43,7 +44,7 @@ type Backend interface {
 	// ContainerCreateWorkdir creates the workdir
 	ContainerCreateWorkdir(containerID string) error
 
-	CreateImage(config []byte, parent string, platform string) (Image, error)
+	CreateImage(config []byte, parent string) (Image, error)
 
 	ImageCacheBuilder
 }
@@ -78,7 +79,7 @@ type Result struct {
 // ImageCacheBuilder represents a generator for stateful image cache.
 type ImageCacheBuilder interface {
 	// MakeImageCache creates a stateful image cache.
-	MakeImageCache(cacheFrom []string, platform string) ImageCache
+	MakeImageCache(cacheFrom []string) ImageCache
 }
 
 // ImageCache abstracts an image cache.
@@ -94,12 +95,13 @@ type Image interface {
 	ImageID() string
 	RunConfig() *container.Config
 	MarshalJSON() ([]byte, error)
+	OperatingSystem() string
 }
 
 // ReleaseableLayer is an image layer that can be mounted and released
 type ReleaseableLayer interface {
 	Release() error
-	Mount() (string, error)
-	Commit(platform string) (ReleaseableLayer, error)
+	Mount() (containerfs.ContainerFS, error)
+	Commit() (ReleaseableLayer, error)
 	DiffID() layer.DiffID
 }

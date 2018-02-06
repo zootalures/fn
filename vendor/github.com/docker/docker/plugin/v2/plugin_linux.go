@@ -1,5 +1,3 @@
-// +build linux
-
 package v2
 
 import (
@@ -18,7 +16,7 @@ import (
 // InitSpec creates an OCI spec from the plugin's config.
 func (p *Plugin) InitSpec(execRoot string) (*specs.Spec, error) {
 	s := oci.DefaultSpec()
-	s.Root = specs.Root{
+	s.Root = &specs.Root{
 		Path:     p.Rootfs,
 		Readonly: false, // TODO: all plugins should be readonly? settable in config?
 	}
