@@ -53,6 +53,9 @@ message StartCall {
     int32 timeout = 11;
     int32 idle_timeout = 12;
 
+    uint64 memory = 13;
+
+
     oneof proto {
         HttpReqMeta http = 100;
     }

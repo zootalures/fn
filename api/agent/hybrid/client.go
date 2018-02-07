@@ -17,7 +17,7 @@ import (
 	"github.com/fnproject/fn/api/agent"
 	"github.com/fnproject/fn/api/common"
 	"github.com/fnproject/fn/api/models"
-	opentracing "github.com/opentracing/opentracing-go"
+	"github.com/opentracing/opentracing-go"
 )
 
 // client implements agent.DataAccess
@@ -38,6 +38,8 @@ func NewClient(u string) (agent.DataAccess, error) {
 	if uri.Scheme == "" {
 		uri.Scheme = "http"
 	}
+
+
 	host := uri.Scheme + "://" + uri.Host + "/v1/"
 
 	httpClient := &http.Client{

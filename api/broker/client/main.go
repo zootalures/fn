@@ -172,11 +172,13 @@ func (*remoteRunner) Dequeue(ctx context.Context) (*models.Call, error) {
 }
 
 func (*remoteRunner) Start(ctx context.Context, mCall *models.Call) error {
+	log.Printf("Call Starting  %v", mCall)
+
 	return nil
 }
 
 func (r *remoteRunner) Finish(ctx context.Context, mCall *models.Call, stderr io.Reader, async bool) error {
-
+	log.Printf("Call complete %v", mCall)
 	buf := make([]byte, 65535)
 	v, ok := r.callState.Load(mCall.ID)
 	r.callState.Delete(mCall.ID)
@@ -186,10 +188,18 @@ func (r *remoteRunner) Finish(ctx context.Context, mCall *models.Call, stderr io
 	}
 	callState := v.(*callState)
 
+	callState.client.Send(&broker.ClientMsg{
+		Body: &broker.ClientMsg_CallComplete{
+			CallComplete: &broker.CallComplete{
+				CallId: mCall.ID,
+			},
+		},
+	})
+
 	for {
 		count, err := stderr.Read(buf)
-
-		if err != nil && err != io.EOF {
+		eof := err == io.EOF
+		if err != nil && !eof {
 			return errors.New("failed to read log")
 		}
 
@@ -206,12 +216,16 @@ func (r *remoteRunner) Finish(ctx context.Context, mCall *models.Call, stderr io
 		if sendErr != nil {
 			return errors.New("Failed to remote logs ")
 		}
+		if eof {
+			break
+		}
 
 	}
 	return nil
 }
 
 func (r *remoteRunner) handleData(data *broker.DataFrame) {
+	log.Printf("Got data for %s eof? %s", data.CallId, data.Eof)
 	v, ok := r.callState.Load(data.CallId)
 	if !ok {
 		log.Fatal("Got data for unexpected call ", data.CallId)
@@ -243,6 +257,7 @@ func (c *callState) commitHeaders() {
 		return
 	}
 	c.headerWritten = true
+	log.Printf("committing call with headers  %v : %d", c.outHeaders, c.outStatus)
 
 	var outHeaders []*broker.HttpHeader
 
@@ -254,6 +269,8 @@ func (c *callState) commitHeaders() {
 			})
 		}
 	}
+
+	log.Print("sending response value")
 
 	err := c.client.Send(&broker.ClientMsg{
 		Body: &broker.ClientMsg_CallRespond{
@@ -272,11 +289,14 @@ func (c *callState) commitHeaders() {
 	})
 
 	if err != nil {
+		log.Println("error sending call", err)
 		panic(err)
 	}
+	log.Println("Sent call response ")
 }
 
 func (c *callState) Write(data []byte) (int, error) {
+	log.Printf("Got response data %s", string(data))
 	c.commitHeaders()
 	err := c.client.Send(&broker.ClientMsg{
 		Body: &broker.ClientMsg_Data{
@@ -294,6 +314,7 @@ func (c *callState) Write(data []byte) (int, error) {
 }
 
 func (c *callState) Close() error {
+	log.Printf("closing call %s", c.ID)
 	c.commitHeaders()
 	err := c.client.Send(&broker.ClientMsg{
 		Body: &broker.ClientMsg_Data{
@@ -310,7 +331,7 @@ func (c *callState) Close() error {
 	return nil
 }
 
-func (r *remoteRunner) handleCall(call *broker.StartCall) {
+func (r *remoteRunner) handleCall(client broker.Broker_EngageClient, call *broker.StartCall) {
 	log.Printf("starting call %s", call.CallId)
 
 	callData := &models.Call{
@@ -320,6 +341,10 @@ func (r *remoteRunner) handleCall(call *broker.StartCall) {
 		Config:      call.ContainerConfig,
 		Timeout:     call.Timeout,
 		IdleTimeout: call.IdleTimeout,
+		Image:       call.Image,
+		Memory:      call.Memory,
+		AppName:     call.App,
+		Path:        call.Route,
 	}
 
 	callHttp := call.GetHttp()
@@ -336,10 +361,12 @@ func (r *remoteRunner) handleCall(call *broker.StartCall) {
 	inR, inW := io.Pipe()
 
 	rdCall := &callState{
-		ID:        call.CallId,
-		call:      callData,
-		input:     inW,
-		outStatus: http.StatusOK,
+		ID:         call.CallId,
+		call:       callData,
+		input:      inW,
+		outStatus:  http.StatusOK,
+		outHeaders: http.Header{},
+		client:     client,
 	}
 	var w http.ResponseWriter
 	w = rdCall
@@ -351,7 +378,18 @@ func (r *remoteRunner) handleCall(call *broker.StartCall) {
 	}
 	r.callState.Store(call.CallId, rdCall)
 
-	r.agent.Submit(agentCall)
+	go func() {
+		err = r.agent.Submit(agentCall)
+		if err != nil {
+			log.Println("error submitting call", err)
+			r.callState.Delete(call.CallId)
+			return
+		}
+
+		log.Printf("call submitted %s", call.CallId)
+
+	}()
+
 }
 
 func runEngagement(client broker.BrokerClient) {
@@ -396,12 +434,13 @@ func runEngagement(client broker.BrokerClient) {
 		}
 		switch body := msg.Body.(type) {
 		case *broker.ServerMsg_StartCall:
-			dataHolder.handleCall(body.StartCall)
+			dataHolder.handleCall(engagement, body.StartCall)
 		case *broker.ServerMsg_Data:
 			dataHolder.handleData(body.Data)
 		}
 	}
 }
+
 func main() {
 	client, err := Connect("127.0.0.1:9190")
 
